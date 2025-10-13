@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -13,7 +14,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,16 +25,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.andyching168.gmapmqtt.NavigationInfo
 import com.andyching168.gmapmqtt.NavigationViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.andyching168.gmapmqtt.ui.theme.GmapMQTTTheme
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
+        // 啟動時檢查是否需要自動連線 MQTT
+        autoConnectMqtt()
+        
         setContent {
             GmapMQTTTheme {
                 Surface(
@@ -38,6 +51,21 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     NavigationScreen()
+                }
+            }
+        }
+    }
+    
+    private fun autoConnectMqtt() {
+        val mqttSettingsManager = GmapMQTTApp.getInstance().getMqttSettingsManager()
+        val mqttClientManager = GmapMQTTApp.getInstance().getMqttClientManager()
+        
+        // 使用協程來讀取設定並連線
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+            mqttSettingsManager.mqttConfigFlow.collect { config ->
+                if (config.autoConnect && config.brokerUrl.isNotEmpty()) {
+                    android.util.Log.d("MainActivity", "Auto-connecting to MQTT: ${config.brokerUrl}")
+                    mqttClientManager.connect(config)
                 }
             }
         }
@@ -92,6 +120,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun NavigationScreen() {
     val viewModel: NavigationViewModel = GmapMQTTApp.getInstance().getNavigationViewModel()
+    val mqttClientManager = GmapMQTTApp.getInstance().getMqttClientManager()
+    val mqttSettingsManager = GmapMQTTApp.getInstance().getMqttSettingsManager()
     val context = LocalContext.current
     val navigationInfoState = viewModel.navigationInfo.collectAsStateWithLifecycle()
     val navigationInfo = navigationInfoState.value
@@ -99,6 +129,7 @@ fun NavigationScreen() {
     val unknownHashes = unknownHashesState.value
     var showJsonDialog by remember { mutableStateOf(false) }
     var showRawNotificationDialog by remember { mutableStateOf(false) }
+    var showMqttSettings by remember { mutableStateOf(false) }
 
     var isServiceEnabled by remember {
         mutableStateOf(isNotificationServiceEnabled(context))
@@ -115,6 +146,14 @@ fun NavigationScreen() {
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
+    }
+
+    if (showMqttSettings) {
+        MqttSettingsDialog(
+            mqttSettingsManager = mqttSettingsManager,
+            mqttClientManager = mqttClientManager,
+            onDismiss = { showMqttSettings = false }
+        )
     }
 
     Column(
@@ -168,6 +207,28 @@ fun NavigationScreen() {
         ) {
             Text("開啟通知存取權限")
         }
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = { showMqttSettings = true },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("MQTT 設定")
+            }
+            
+            Button(
+                onClick = { viewModel.openGoogleMaps(context) },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("開啟 Google Maps")
+            }
+        }
+        
+        // MQTT 連線狀態顯示
+        MqttStatusCard(mqttClientManager)
 
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -400,6 +461,208 @@ fun isNotificationServiceEnabled(context: Context): Boolean {
         }
     }
     return false
+}
+
+@Composable
+fun MqttStatusCard(mqttClientManager: MqttClientManager) {
+    val connectionState = mqttClientManager.connectionState.collectAsStateWithLifecycle()
+    val errorMessage = mqttClientManager.errorMessage.collectAsStateWithLifecycle()
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = when (connectionState.value) {
+                MqttConnectionState.CONNECTED -> MaterialTheme.colorScheme.primaryContainer
+                MqttConnectionState.CONNECTING -> MaterialTheme.colorScheme.secondaryContainer
+                MqttConnectionState.ERROR -> MaterialTheme.colorScheme.errorContainer
+                MqttConnectionState.DISCONNECTED -> MaterialTheme.colorScheme.surfaceVariant
+            }
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "MQTT 連線狀態",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            
+            Text(
+                text = when (connectionState.value) {
+                    MqttConnectionState.CONNECTED -> "✓ 已連線"
+                    MqttConnectionState.CONNECTING -> "⟳ 連線中..."
+                    MqttConnectionState.ERROR -> "✗ 錯誤"
+                    MqttConnectionState.DISCONNECTED -> "○ 未連線"
+                },
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold
+            )
+            
+            errorMessage.value?.let { error ->
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MqttSettingsDialog(
+    mqttSettingsManager: MqttSettingsManager,
+    mqttClientManager: MqttClientManager,
+    onDismiss: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val mqttConfig = mqttSettingsManager.mqttConfigFlow.collectAsStateWithLifecycle(
+        initialValue = MqttConfig()
+    )
+    
+    var brokerUrl by remember { mutableStateOf("") }
+    var port by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var topic by remember { mutableStateOf("") }
+    var autoConnect by remember { mutableStateOf(false) }
+    
+    // 初始化設定值
+    LaunchedEffect(mqttConfig.value) {
+        brokerUrl = mqttConfig.value.brokerUrl
+        port = mqttConfig.value.port.toString()
+        username = mqttConfig.value.username
+        password = mqttConfig.value.password
+        topic = mqttConfig.value.topic
+        autoConnect = mqttConfig.value.autoConnect
+    }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("MQTT 設定") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = brokerUrl,
+                    onValueChange = { brokerUrl = it },
+                    label = { Text("Broker URL") },
+                    placeholder = { Text("例: broker.hivemq.com") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                
+                OutlinedTextField(
+                    value = port,
+                    onValueChange = { port = it },
+                    label = { Text("Port") },
+                    placeholder = { Text("1883") },
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+                
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text("使用者名稱 (選填)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("密碼 (選填)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true
+                )
+                
+                OutlinedTextField(
+                    value = topic,
+                    onValueChange = { topic = it },
+                    label = { Text("推送主題") },
+                    placeholder = { Text("navigation/info") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("自動連線")
+                    Switch(
+                        checked = autoConnect,
+                        onCheckedChange = { autoConnect = it }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val config = MqttConfig(
+                                brokerUrl = brokerUrl,
+                                username = username,
+                                password = password,
+                                topic = topic.ifEmpty { "navigation/info" },
+                                autoConnect = autoConnect,
+                                port = port.toIntOrNull() ?: 1883
+                            )
+                            mqttSettingsManager.saveMqttConfig(config)
+                            
+                            if (mqttClientManager.isConnected()) {
+                                mqttClientManager.disconnect()
+                            }
+                            
+                            if (brokerUrl.isNotEmpty()) {
+                                mqttClientManager.connect(config)
+                            }
+                            
+                            Toast.makeText(context, "設定已儲存", Toast.LENGTH_SHORT).show()
+                            onDismiss()
+                        }
+                    }
+                ) {
+                    Text("儲存並連線")
+                }
+                
+                if (mqttClientManager.isConnected()) {
+                    Button(
+                        onClick = {
+                            mqttClientManager.disconnect()
+                            Toast.makeText(context, "已斷線", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("斷線")
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            Button(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
 }
 
 // Make sure your build.gradle.kts includes:

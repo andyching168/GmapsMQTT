@@ -9,15 +9,17 @@ import android.net.Uri
 import android.util.Log
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
 
-class NavigationViewModel : ViewModel() {
+class NavigationViewModel(private val mqttClientManager: MqttClientManager) : ViewModel() {
     private val _navigationInfo = MutableStateFlow(NavigationInfo())
     val navigationInfo: StateFlow<NavigationInfo> = _navigationInfo.asStateFlow()
 
@@ -113,6 +115,19 @@ class NavigationViewModel : ViewModel() {
 
     fun updateNavigationInfo(info: NavigationInfo) {
         _navigationInfo.value = info
+        
+        // 當導航資訊更新時，自動推送到 MQTT
+        publishNavigationInfo()
+    }
+    
+    private fun publishNavigationInfo() {
+        if (mqttClientManager.isConnected()) {
+            val json = generateNavigationJson()
+            val topic = mqttClientManager.getCurrentTopic()
+            if (topic.isNotEmpty()) {
+                mqttClientManager.publish(topic, json)
+            }
+        }
     }
 
     fun setLastRawNotification(raw: String) {
