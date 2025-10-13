@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.andyching168.notificationcatcher"
+    namespace = "com.andyching168.gmapmqtt"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.andyching168.notificationcatcher"
+        applicationId = "com.andyching168.gmapmqtt"
         minSdk = 31
         targetSdk = 34
         versionCode = 1

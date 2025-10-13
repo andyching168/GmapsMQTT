@@ -1,4 +1,4 @@
-package com.andyching168.notificationcatcher
+package com.andyching168.gmapmqtt
 
 data class NavigationInfo(
     val direction: String = "",
@@ -11,4 +11,5 @@ data class NavigationInfo(
     val hasNotification: Boolean = false,
     val iconResId: Int = 0,
     val turnDirection: String = ""   // 轉彎方向
-) 
+)
+

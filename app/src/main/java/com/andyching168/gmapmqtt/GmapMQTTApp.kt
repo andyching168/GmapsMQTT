@@ -1,11 +1,11 @@
-package com.andyching168.notificationcatcher
+package com.andyching168.gmapmqtt
 
 import android.app.Application
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 
-class NotificationCatcherApp : Application(), ViewModelStoreOwner {
+class GmapMQTTApp : Application(), ViewModelStoreOwner {
     private val _viewModelStore = ViewModelStore()
     private val viewModelProvider = ViewModelProvider(this)
 
@@ -17,9 +17,9 @@ class NotificationCatcherApp : Application(), ViewModelStoreOwner {
         get() = _viewModelStore
 
     companion object {
-        private var instance: NotificationCatcherApp? = null
+        private var instance: GmapMQTTApp? = null
 
-        fun getInstance(): NotificationCatcherApp {
+        fun getInstance(): GmapMQTTApp {
             return instance ?: throw IllegalStateException("Application not initialized")
         }
     }
@@ -28,4 +28,5 @@ class NotificationCatcherApp : Application(), ViewModelStoreOwner {
         super.onCreate()
         instance = this
     }
-} 
+}
+

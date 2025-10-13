@@ -22,3 +22,4 @@ class ExampleInstrumentedTest {
         assertEquals("com.andyching168.gmapmqtt", appContext.packageName)
     }
 }
+

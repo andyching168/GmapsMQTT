@@ -19,6 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "NotificationCatcher"
+rootProject.name = "GmapMQTT"
 include(":app")
- 

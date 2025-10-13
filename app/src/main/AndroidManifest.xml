@@ -6,7 +6,7 @@
     <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" />
 
     <application
-        android:name=".NotificationCatcherApp"
+        android:name=".GmapMQTTApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -14,7 +14,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.NotificationCatcher"
+        android:theme="@style/Theme.GmapMQTT"
         tools:targetApi="31">
         
         <service
@@ -31,7 +31,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.NotificationCatcher">
+            android:theme="@style/Theme.GmapMQTT">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

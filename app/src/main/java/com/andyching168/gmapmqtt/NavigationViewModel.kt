@@ -1,4 +1,4 @@
-package com.andyching168.notificationcatcher
+package com.andyching168.gmapmqtt
 
 import android.content.Context
 import android.content.ClipData
@@ -8,8 +8,6 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
 import android.widget.Toast
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,22 +32,24 @@ class NavigationViewModel : ViewModel() {
     private val iconHashMap: Map<String, String> = mapOf(
         // 基本方向
         "3-59-0-0-123-151-99-71-11-71-0-95-0-0-0-47" to "left",   // 左轉
+        "0-63-0-0-127-175-127-71-11-79-0-127-0-0-0-63" to "left",
         "0-0-59-3-71-99-151-123-95-0-71-11-47-0-0-0" to "right",  // 右轉
+        "0-0-63-3-71-127-175-127-127-0-79-11-63-0-0-0" to "right",
         "0-39-39-0-0-175-175-0-0-55-55-0-0-23-23-0" to "straight", // 直行
         "0-39-39-0-0-175-175-0-0-63-63-0-0-31-31-0" to "straight", // 直行
         "0-39-39-0-0-175-175-0-0-139-135-0-7-55-55-3" to "GoStraight", // 直行(接到下一個路）
-        
+
         // 靠左/靠右
         "0-119-47-0-0-191-79-0-0-0-111-23-0-0-31-31" to "side_left", // 靠左
         "0-47-119-0-0-79-191-0-23-111-0-0-31-31-0-0" to "side_right", // 靠右
-        
+
         // 分岔路
         "0-23-111-47-43-127-155-95-0-139-11-0-0-63-0-0" to "ForkRight", // 分岔路（靠右）
         "47-111-11-3-95-171-131-43-0-11-139-0-0-0-63-0" to "ForkLeft", // 分岔路（靠左）
-        
+
         // 下交流道
         "47-15-99-15-95-139-171-103-95-75-43-3-47-15-0-0" to "ExitRight", // 下交流道(右)
-        
+
         //急轉
         "0-0-51-19-47-79-91-103-119-171-0-95-0-0-0-47" to "SharpTurnLeft", // 向左後急轉
         "19-51-0-0-103-91-79-47-95-0-171-119-47-0-0-0" to "SharpTurnRight", // 向右後急轉
@@ -58,10 +58,10 @@ class NavigationViewModel : ViewModel() {
         "0-143-143-0-0-167-167-0-0-139-139-0-0-39-39-0" to "Roundabout", // 圓環
         "23-123-119-11-115-51-171-75-91-127-119-0-0-63-0-0" to "Exit1st", // 駛出圓環(4分之1)
         "0-59-79-0-0-131-159-3-39-131-147-3-0-0-39-15" to "Exit2nd", // 駛出圓環(2分之1)
-        
+
         // 迴轉
         "0-51-115-15-11-115-23-107-75-203-51-95-0-15-0-47" to "UTurnLeft", // 迴轉（左）
-        
+
         // 目的地
         "99-131-11-0-119-111-39-11-67-167-203-143-0-55-91-103" to "DestinationLeft", // 目的地在左方
         "0-11-131-99-11-39-115-119-143-203-167-67-103-91-55-0" to "DestinationRight", // 目的地在右方
@@ -78,15 +78,15 @@ class NavigationViewModel : ViewModel() {
     private fun isHashSimilar(hash1: String, hash2: String): Boolean {
         val parts1 = hash1.split("-").map { it.toInt() }
         val parts2 = hash2.split("-").map { it.toInt() }
-        
+
         if (parts1.size != parts2.size) return false
-        
+
         val differences = parts1.zip(parts2).map { (p1, p2) -> Math.abs(p1 - p2) }
         val maxDiff = differences.maxOrNull() ?: 0
-        
+
         // 記錄最大差異，方便調試
         if (maxDiff > 20) {
-            Log.d("NotificationCatcher", """
+            Log.d("GmapMQTT", """
                 哈希值比較:
                 原始: $hash1
                 當前: $hash2
@@ -94,7 +94,7 @@ class NavigationViewModel : ViewModel() {
                 差異分布: ${differences.joinToString(", ")}
             """.trimIndent())
         }
-        
+
         return differences.all { it <= TOLERANCE }
     }
 
@@ -102,15 +102,14 @@ class NavigationViewModel : ViewModel() {
     private fun getDirectionWithTolerance(hash: String): String? {
         val direction = iconHashMap.entries.find { isHashSimilar(it.key, hash) }?.value
         if (direction != null) {
-            Log.d("NotificationCatcher", "成功匹配方向: $direction")
+            Log.d("GmapMQTT", "成功匹配方向: $direction")
         } else {
-            Log.d("NotificationCatcher", "未找到匹配的方向，當前哈希值: $hash")
+            Log.d("GmapMQTT", "未找到匹配的方向，當前哈希值: $hash")
         }
         return direction
     }
 
     private val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-    private val TIME_THRESHOLD = TimeUnit.SECONDS.toMillis(10) // 10秒時間閾值
 
     fun updateNavigationInfo(info: NavigationInfo) {
         _navigationInfo.value = info
@@ -178,7 +177,7 @@ class NavigationViewModel : ViewModel() {
             }
         } catch (e: Exception) {
             Toast.makeText(context, "無法開啟 Google Maps", Toast.LENGTH_SHORT).show()
-            Log.e("NotificationCatcher", "開啟 Google Maps 失敗", e)
+            Log.e("GmapMQTT", "開啟 Google Maps 失敗", e)
         }
     }
 
@@ -198,4 +197,4 @@ class NavigationViewModel : ViewModel() {
         clipboard.setPrimaryClip(clip)
         Toast.makeText(context, "已複製到剪貼簿", Toast.LENGTH_SHORT).show()
     }
-} 
+}

@@ -1,4 +1,4 @@
-package com.andyching168.notificationcatcher
+package com.andyching168.gmapmqtt
 
 import android.content.ComponentName
 import android.content.Context
@@ -9,7 +9,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,16 +22,17 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.andyching168.gmapmqtt.NavigationInfo
+import com.andyching168.gmapmqtt.NavigationViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.andyching168.notificationcatcher.ui.theme.NotificationCatcherTheme
+import com.andyching168.gmapmqtt.ui.theme.GmapMQTTTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            NotificationCatcherTheme {
+            GmapMQTTTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -46,7 +46,6 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         android.util.Log.d("MainActivity", "onResume called")
-        // 每次 Activity 恢復時，確保 Service 已啟用並嘗試重新連接
         ensureServiceEnabled()
     }
 
@@ -54,7 +53,6 @@ class MainActivity : ComponentActivity() {
         val isEnabled = isNotificationServiceEnabled()
         android.util.Log.d("MainActivity", "Service enabled: $isEnabled")
         if (isEnabled) {
-            // 權限已啟用，嘗試重新啟動服務以確保連接
             android.util.Log.d("MainActivity", "Requesting rebind...")
             requestRebind()
         }
@@ -83,11 +81,8 @@ class MainActivity : ComponentActivity() {
 
     private fun requestRebind() {
         try {
-            // 請求系統重新綁定 NotificationListenerService
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                val componentName = ComponentName(this, NotificationCatcherService::class.java)
-                android.service.notification.NotificationListenerService.requestRebind(componentName)
-            }
+            val componentName = ComponentName(this, NotificationCatcherService::class.java)
+            android.service.notification.NotificationListenerService.requestRebind(componentName)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -96,25 +91,23 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun NavigationScreen() {
-    val viewModel: NavigationViewModel = NotificationCatcherApp.getInstance().getNavigationViewModel()
+    val viewModel: NavigationViewModel = GmapMQTTApp.getInstance().getNavigationViewModel()
     val context = LocalContext.current
-    val navigationInfo by viewModel.navigationInfo.collectAsStateWithLifecycle()
-    val unknownHashes by viewModel.unknownHashes.collectAsStateWithLifecycle()
-    val scrollState = rememberScrollState()
+    val navigationInfoState = viewModel.navigationInfo.collectAsStateWithLifecycle()
+    val navigationInfo = navigationInfoState.value
+    val unknownHashesState = viewModel.unknownHashes.collectAsStateWithLifecycle()
+    val unknownHashes = unknownHashesState.value
     var showJsonDialog by remember { mutableStateOf(false) }
     var showRawNotificationDialog by remember { mutableStateOf(false) }
-    
-    // 檢查通知權限狀態
+
     var isServiceEnabled by remember {
         mutableStateOf(isNotificationServiceEnabled(context))
     }
 
-    // 使用 DisposableEffect 來監聽生命週期變化
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                // 當畫面恢復時重新檢查權限狀態
                 isServiceEnabled = isNotificationServiceEnabled(context)
             }
         }
@@ -131,7 +124,6 @@ fun NavigationScreen() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 權限狀態卡片
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
@@ -167,8 +159,7 @@ fun NavigationScreen() {
                 }
             }
         }
-        
-        // 權限設定按鈕
+
         Button(
             onClick = {
                 val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
@@ -178,47 +169,37 @@ fun NavigationScreen() {
             Text("開啟通知存取權限")
         }
 
-        // 功能按鈕區
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // 第一行：顯示原始通知 和 顯示 JSON
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
-                    onClick = {
-                        showRawNotificationDialog = true
-                    },
+                    onClick = { showRawNotificationDialog = true },
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("顯示原始通知")
                 }
 
                 Button(
-                    onClick = {
-                        showJsonDialog = true
-                    },
+                    onClick = { showJsonDialog = true },
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("顯示 JSON")
                 }
             }
 
-            // 第二行：開啟 Google Maps（置中）
             Button(
-                onClick = {
-                    viewModel.openGoogleMaps(context)
-                },
+                onClick = { viewModel.openGoogleMaps(context) },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("開啟 Google Maps")
             }
         }
 
-        // 導航資訊顯示
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
@@ -260,7 +241,6 @@ fun NavigationScreen() {
             }
         }
 
-        // 未知哈希值列表
         if (unknownHashes.isNotEmpty()) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -317,9 +297,7 @@ fun NavigationScreen() {
                                     }
                                 }
                                 Button(
-                                    onClick = {
-                                        viewModel.copyHashToClipboard(context, hash)
-                                    }
+                                    onClick = { viewModel.copyHashToClipboard(context, hash) }
                                 ) {
                                     Text("複製")
                                 }
@@ -331,7 +309,6 @@ fun NavigationScreen() {
         }
     }
 
-    // JSON 對話框
     if (showJsonDialog) {
         AlertDialog(
             onDismissRequest = { showJsonDialog = false },
@@ -346,25 +323,18 @@ fun NavigationScreen() {
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.copyJsonToClipboard(context)
-                    }
-                ) {
+                Button(onClick = { viewModel.copyJsonToClipboard(context) }) {
                     Text("複製")
                 }
             },
             dismissButton = {
-                Button(
-                    onClick = { showJsonDialog = false }
-                ) {
+                Button(onClick = { showJsonDialog = false }) {
                     Text("關閉")
                 }
             }
         )
     }
 
-    // 原始通知對話框
     if (showRawNotificationDialog) {
         AlertDialog(
             onDismissRequest = { showRawNotificationDialog = false },
@@ -379,18 +349,12 @@ fun NavigationScreen() {
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.copyRawNotificationToClipboard(context)
-                    }
-                ) {
+                Button(onClick = { viewModel.copyRawNotificationToClipboard(context) }) {
                     Text("複製")
                 }
             },
             dismissButton = {
-                Button(
-                    onClick = { showRawNotificationDialog = false }
-                ) {
+                Button(onClick = { showRawNotificationDialog = false }) {
                     Text("關閉")
                 }
             }
@@ -417,7 +381,6 @@ fun NavigationInfoItem(label: String, value: String) {
     }
 }
 
-// 檢查通知監聽服務是否已啟用
 fun isNotificationServiceEnabled(context: Context): Boolean {
     val packageName = context.packageName
     val flat = Settings.Secure.getString(
@@ -438,3 +401,6 @@ fun isNotificationServiceEnabled(context: Context): Boolean {
     }
     return false
 }
+
+// Make sure your build.gradle.kts includes:
+// implementation("androidx.lifecycle:lifecycle-runtime-compose:2.6.2")
