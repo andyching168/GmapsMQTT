@@ -8,14 +8,14 @@ import androidx.lifecycle.ViewModel
 
 class GmapMQTTApp : Application(), ViewModelStoreOwner {
     private val _viewModelStore = ViewModelStore()
-    private lateinit var mqttClientManager: MqttClientManager
-    private lateinit var mqttSettingsManager: MqttSettingsManager
+    private lateinit var usbSerialManager: UsbSerialManager
+    private lateinit var usbSettingsManager: UsbSettingsManager
 
     private val viewModelFactory = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(NavigationViewModel::class.java)) {
-                return NavigationViewModel(mqttClientManager) as T
+                return NavigationViewModel(usbSerialManager) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class")
         }
@@ -27,12 +27,12 @@ class GmapMQTTApp : Application(), ViewModelStoreOwner {
         return viewModelProvider[NavigationViewModel::class.java]
     }
     
-    fun getMqttClientManager(): MqttClientManager {
-        return mqttClientManager
+    fun getUsbSerialManager(): UsbSerialManager {
+        return usbSerialManager
     }
     
-    fun getMqttSettingsManager(): MqttSettingsManager {
-        return mqttSettingsManager
+    fun getUsbSettingsManager(): UsbSettingsManager {
+        return usbSettingsManager
     }
 
     override val viewModelStore: ViewModelStore
@@ -50,9 +50,14 @@ class GmapMQTTApp : Application(), ViewModelStoreOwner {
         super.onCreate()
         instance = this
         
-        // 初始化 MQTT 相關組件
-        mqttClientManager = MqttClientManager()
-        mqttSettingsManager = MqttSettingsManager(this)
+        // 初始化 USB Serial 相關組件
+        usbSerialManager = UsbSerialManager(this)
+        usbSettingsManager = UsbSettingsManager(this)
+    }
+    
+    override fun onTerminate() {
+        super.onTerminate()
+        usbSerialManager.cleanup()
     }
 }
 

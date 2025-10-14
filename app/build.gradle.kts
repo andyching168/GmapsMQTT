@@ -40,9 +40,6 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
-            excludes += "/META-INF/INDEX.LIST"
-            excludes += "/META-INF/DEPENDENCIES"
-            excludes += "/META-INF/io.netty.versions.properties"
         }
     }
 }
@@ -63,8 +60,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
     implementation("androidx.hilt:hilt-navigation-compose:1.0.0")
     
-    // HiveMQ MQTT Client
-    implementation("com.hivemq:hivemq-mqtt-client:1.3.3")
+    // USB Serial for Android
+    implementation("com.github.mik3y:usb-serial-for-android:3.7.3")
     
     // DataStore for settings persistence
     implementation("androidx.datastore:datastore-preferences:1.0.0")

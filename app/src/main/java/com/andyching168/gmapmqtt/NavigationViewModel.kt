@@ -19,7 +19,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
 
-class NavigationViewModel(private val mqttClientManager: MqttClientManager) : ViewModel() {
+class NavigationViewModel(private val usbSerialManager: UsbSerialManager) : ViewModel() {
     private val _navigationInfo = MutableStateFlow(NavigationInfo())
     val navigationInfo: StateFlow<NavigationInfo> = _navigationInfo.asStateFlow()
 
@@ -123,17 +123,15 @@ class NavigationViewModel(private val mqttClientManager: MqttClientManager) : Vi
             Log.d("GmapMQTT", "導航已結束，清除圖標數據")
         }
         
-        // 當導航資訊更新時，自動推送到 MQTT
+        // 當導航資訊更新時，自動發送到 USB Serial
         publishNavigationInfo()
     }
     
     private fun publishNavigationInfo() {
-        if (mqttClientManager.isConnected()) {
+        if (usbSerialManager.isConnected()) {
             val json = generateNavigationJson()
-            val topic = mqttClientManager.getCurrentTopic()
-            if (topic.isNotEmpty()) {
-                mqttClientManager.publish(topic, json)
-            }
+            // 添加換行符，方便 ESP32 解析
+            usbSerialManager.send(json + "\n")
         }
     }
 
@@ -226,11 +224,19 @@ class NavigationViewModel(private val mqttClientManager: MqttClientManager) : Vi
             // 始終包含 iconData 欄位，避免解析工具因欄位消失而出錯
             put("iconData", lastProcessedIcon)
         }
-        return json.toString(4) // 使用 4 個空格進行格式化
+        return json.toString() // 單行 JSON，避免被 \n 分段
     }
 
     fun copyJsonToClipboard(context: Context) {
-        val jsonString = generateNavigationJson()
+        // 複製時使用格式化的 JSON，方便閱讀
+        val json = JSONObject().apply {
+            put("turnDirection", _navigationInfo.value.turnDirection)
+            put("direction", _navigationInfo.value.direction)
+            put("turnDistance", _navigationInfo.value.turnDistance)
+            put("iconData", lastProcessedIcon)
+        }
+        val jsonString = json.toString(4) // 格式化版本
+        
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText("Navigation Info", jsonString)
         clipboard.setPrimaryClip(clip)
