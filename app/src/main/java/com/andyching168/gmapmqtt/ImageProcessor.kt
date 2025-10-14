@@ -17,8 +17,8 @@ class ImageProcessor {
     
     companion object {
         private const val TAG = "ImageProcessor"
-        private const val TARGET_SIZE = 32  // 目標尺寸 32x32
-        private const val TOTAL_PIXELS = TARGET_SIZE * TARGET_SIZE  // 1024 像素
+        private const val TARGET_SIZE = 48  // 目標尺寸 48x48
+        private const val TOTAL_PIXELS = TARGET_SIZE * TARGET_SIZE  // 2304 像素
         
         /**
          * 處理圖像並返回壓縮編碼後的字串
