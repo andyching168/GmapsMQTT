@@ -29,6 +29,7 @@ class NavigationViewModel(private val mqttClientManager: MqttClientManager) : Vi
     private var lastRawNotification: String = ""
     private var lastIconHash: String = ""
     private var lastUnknownHash: String = ""
+    private var lastProcessedIcon: String = ""  // 存儲處理後的圖標數據（Hex字串）
 
     // 哈希值對應表
     private val iconHashMap: Map<String, String> = mapOf(
@@ -116,6 +117,12 @@ class NavigationViewModel(private val mqttClientManager: MqttClientManager) : Vi
     fun updateNavigationInfo(info: NavigationInfo) {
         _navigationInfo.value = info
         
+        // 如果沒有導航通知（導航結束），清空圖標數據
+        if (!info.hasNotification) {
+            lastProcessedIcon = ""
+            Log.d("GmapMQTT", "導航已結束，清除圖標數據")
+        }
+        
         // 當導航資訊更新時，自動推送到 MQTT
         publishNavigationInfo()
     }
@@ -151,6 +158,21 @@ class NavigationViewModel(private val mqttClientManager: MqttClientManager) : Vi
 
     fun setLastIconHash(hash: String, bitmap: Bitmap? = null) {
         lastIconHash = hash
+        
+        // 處理圖標並生成壓縮編碼字串
+        if (bitmap != null) {
+            val processedIcon = ImageProcessor.processImage(bitmap)
+            if (processedIcon != null) {
+                lastProcessedIcon = processedIcon
+                Log.d("GmapMQTT", "圖標處理成功，壓縮字串長度: ${processedIcon.length}")
+            } else {
+                lastProcessedIcon = ""
+                Log.w("GmapMQTT", "圖標處理失敗")
+            }
+        } else {
+            lastProcessedIcon = ""
+        }
+        
         val direction = getDirectionWithTolerance(hash)
         if (direction != null) {
             val currentInfo = _navigationInfo.value
@@ -201,6 +223,8 @@ class NavigationViewModel(private val mqttClientManager: MqttClientManager) : Vi
             put("turnDirection", _navigationInfo.value.turnDirection)
             put("direction", _navigationInfo.value.direction)
             put("turnDistance", _navigationInfo.value.turnDistance)
+            // 始終包含 iconData 欄位，避免解析工具因欄位消失而出錯
+            put("iconData", lastProcessedIcon)
         }
         return json.toString(4) // 使用 4 個空格進行格式化
     }
