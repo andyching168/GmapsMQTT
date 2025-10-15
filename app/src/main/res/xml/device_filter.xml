@@ -1,25 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 此過濾器允許所有 USB Serial 裝置 -->
-    <!-- 如果您想指定特定的 ESP32 裝置，請取消註解並修改以下範例 -->
-    
-    <!-- 範例：ESP32 常見的 USB Serial 晶片 -->
-    
-    <!-- CP2102 USB to UART Bridge (Silicon Labs) -->
-    <!--
+    <!-- USB Serial 裝置過濾器 -->
+    <!-- 當這些裝置插入時，系統會詢問是否要使用此 App 開啟 -->
+
+    <!-- CP2102 USB to UART Bridge (Silicon Labs) - 常見於 ESP32 開發板 -->
     <usb-device vendor-id="4292" product-id="60000" />
-    -->
-    
-    <!-- CH340 USB to Serial (WCH) -->
-    <!--
+
+    <!-- CH340 USB to Serial (WCH) - 常見於便宜的 ESP32 開發板 -->
     <usb-device vendor-id="6790" product-id="29987" />
-    -->
-    
+    <usb-device vendor-id="6790" product-id="29988" />
+
     <!-- FTDI FT232R USB UART -->
-    <!--
     <usb-device vendor-id="1027" product-id="24577" />
-    -->
-    
-    <!-- 預設：接受所有 USB Serial 裝置 -->
-    <!-- 如需限制特定裝置，請在上方取消註解對應的 vendor-id 和 product-id -->
+
+    <!-- CP2104 USB to UART Bridge -->
+    <usb-device vendor-id="4292" product-id="60004" />
+
+    <!-- 如果你的 ESP32 使用其他晶片，可以在這裡添加對應的 vendor-id 和 product-id -->
+    <!-- 格式: <usb-device vendor-id="十進制VID" product-id="十進制PID" /> -->
 </resources>

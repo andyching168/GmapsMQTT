@@ -19,7 +19,10 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
 
-class NavigationViewModel(private val usbSerialManager: UsbSerialManager) : ViewModel() {
+class NavigationViewModel(
+    private val usbSerialManager: UsbSerialManager,
+    private val usbSettingsManager: UsbSettingsManager
+) : ViewModel() {
     private val _navigationInfo = MutableStateFlow(NavigationInfo())
     val navigationInfo: StateFlow<NavigationInfo> = _navigationInfo.asStateFlow()
 
@@ -30,6 +33,17 @@ class NavigationViewModel(private val usbSerialManager: UsbSerialManager) : View
     private var lastIconHash: String = ""
     private var lastUnknownHash: String = ""
     private var lastProcessedIcon: String = ""  // 存儲處理後的圖標數據（Hex字串）
+
+    // 監聽設定變化
+    private var compactJsonMode: Boolean = true
+
+    init {
+        viewModelScope.launch {
+            usbSettingsManager.usbConfigFlow.collect { config ->
+                compactJsonMode = config.compactJsonMode
+            }
+        }
+    }
 
     // 哈希值對應表
     private val iconHashMap: Map<String, String> = mapOf(
@@ -132,6 +146,13 @@ class NavigationViewModel(private val usbSerialManager: UsbSerialManager) : View
             val json = generateNavigationJson()
             // 添加換行符，方便 ESP32 解析
             usbSerialManager.send(json + "\n")
+
+            // 記錄發送的 JSON（特別標註導航結束的情況）
+            if (!_navigationInfo.value.hasNotification) {
+                Log.d("GmapMQTT", "導航已結束，發送空白 JSON: $json")
+            } else {
+                Log.d("GmapMQTT", "發送導航資訊 JSON: $json")
+            }
         }
     }
 
@@ -232,11 +253,17 @@ class NavigationViewModel(private val usbSerialManager: UsbSerialManager) : View
 
     fun generateNavigationJson(): String {
         val json = JSONObject().apply {
-            put("turnDirection", _navigationInfo.value.turnDirection)
-            put("direction", _navigationInfo.value.direction)
-            put("turnDistance", _navigationInfo.value.turnDistance)
-            // 始終包含 iconData 欄位，避免解析工具因欄位消失而出錯
-            put("iconData", lastProcessedIcon)
+            if (compactJsonMode) {
+                // 精簡模式：只包含 turnDistance 和 iconData
+                put("turnDistance", _navigationInfo.value.turnDistance)
+                put("iconData", lastProcessedIcon)
+            } else {
+                // 完整模式：包含所有欄位
+                put("turnDirection", _navigationInfo.value.turnDirection)
+                put("direction", _navigationInfo.value.direction)
+                put("turnDistance", _navigationInfo.value.turnDistance)
+                put("iconData", lastProcessedIcon)
+            }
         }
         return json.toString() // 單行 JSON，避免被 \n 分段
     }
@@ -244,10 +271,17 @@ class NavigationViewModel(private val usbSerialManager: UsbSerialManager) : View
     fun copyJsonToClipboard(context: Context) {
         // 複製時使用格式化的 JSON，方便閱讀
         val json = JSONObject().apply {
-            put("turnDirection", _navigationInfo.value.turnDirection)
-            put("direction", _navigationInfo.value.direction)
-            put("turnDistance", _navigationInfo.value.turnDistance)
-            put("iconData", lastProcessedIcon)
+            if (compactJsonMode) {
+                // 精簡模式：只包含 turnDistance 和 iconData
+                put("turnDistance", _navigationInfo.value.turnDistance)
+                put("iconData", lastProcessedIcon)
+            } else {
+                // 完整模式：包含所有欄位
+                put("turnDirection", _navigationInfo.value.turnDirection)
+                put("direction", _navigationInfo.value.direction)
+                put("turnDistance", _navigationInfo.value.turnDistance)
+                put("iconData", lastProcessedIcon)
+            }
         }
         val jsonString = json.toString(4) // 格式化版本
         
@@ -255,5 +289,25 @@ class NavigationViewModel(private val usbSerialManager: UsbSerialManager) : View
         val clip = ClipData.newPlainText("Navigation Info", jsonString)
         clipboard.setPrimaryClip(clip)
         Toast.makeText(context, "已複製到剪貼簿", Toast.LENGTH_SHORT).show()
+    }
+
+    // 發送空白 JSON（在斷線前調用）
+    fun sendEmptyJson() {
+        if (usbSerialManager.isConnected()) {
+            val json = JSONObject().apply {
+                if (compactJsonMode) {
+                    put("turnDistance", "")
+                    put("iconData", "")
+                } else {
+                    put("turnDirection", "")
+                    put("direction", "")
+                    put("turnDistance", "")
+                    put("iconData", "")
+                }
+            }
+            val jsonString = json.toString()
+            usbSerialManager.send(jsonString + "\n")
+            Log.d("GmapMQTT", "斷線前發送空白 JSON: $jsonString")
+        }
     }
 }

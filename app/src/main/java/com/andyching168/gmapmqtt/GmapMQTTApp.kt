@@ -15,7 +15,7 @@ class GmapMQTTApp : Application(), ViewModelStoreOwner {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(NavigationViewModel::class.java)) {
-                return NavigationViewModel(usbSerialManager) as T
+                return NavigationViewModel(usbSerialManager, usbSettingsManager) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class")
         }
@@ -60,4 +60,3 @@ class GmapMQTTApp : Application(), ViewModelStoreOwner {
         usbSerialManager.cleanup()
     }
 }
-

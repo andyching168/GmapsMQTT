@@ -22,7 +22,8 @@ data class UsbConfig(
     val parity: Int = 0, // 0=None, 1=Odd, 2=Even
     val autoConnect: Boolean = false,
     val vendorId: Int = -1,
-    val productId: Int = -1
+    val productId: Int = -1,
+    val compactJsonMode: Boolean = true // 精簡JSON模式，預設開啟
 )
 
 class UsbSettingsManager(private val context: Context) {
@@ -36,6 +37,7 @@ class UsbSettingsManager(private val context: Context) {
         private val AUTO_CONNECT_KEY = booleanPreferencesKey("auto_connect")
         private val VENDOR_ID_KEY = intPreferencesKey("vendor_id")
         private val PRODUCT_ID_KEY = intPreferencesKey("product_id")
+        private val COMPACT_JSON_MODE_KEY = booleanPreferencesKey("compact_json_mode")
     }
     
     val usbConfigFlow: Flow<UsbConfig> = context.usbDataStore.data.map { preferences ->
@@ -47,7 +49,8 @@ class UsbSettingsManager(private val context: Context) {
             parity = preferences[PARITY_KEY] ?: 0,
             autoConnect = preferences[AUTO_CONNECT_KEY] ?: false,
             vendorId = preferences[VENDOR_ID_KEY] ?: -1,
-            productId = preferences[PRODUCT_ID_KEY] ?: -1
+            productId = preferences[PRODUCT_ID_KEY] ?: -1,
+            compactJsonMode = preferences[COMPACT_JSON_MODE_KEY] ?: true
         )
     }
     
@@ -61,6 +64,7 @@ class UsbSettingsManager(private val context: Context) {
             preferences[AUTO_CONNECT_KEY] = config.autoConnect
             preferences[VENDOR_ID_KEY] = config.vendorId
             preferences[PRODUCT_ID_KEY] = config.productId
+            preferences[COMPACT_JSON_MODE_KEY] = config.compactJsonMode
         }
     }
 }

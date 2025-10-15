@@ -44,6 +44,9 @@ class MainActivity : ComponentActivity() {
         // 啟動時檢查是否需要自動連線 USB
         autoConnectUsb()
         
+        // 處理 USB 裝置插入事件
+        handleUsbIntent(intent)
+
         setContent {
             GmapMQTTTheme {
                 Surface(
@@ -56,6 +59,64 @@ class MainActivity : ComponentActivity() {
         }
     }
     
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // 當 USB 裝置在 App 運行時插入，會觸發此方法
+        handleUsbIntent(intent)
+    }
+
+    private fun handleUsbIntent(intent: Intent?) {
+        if (intent?.action == android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED) {
+            android.util.Log.d("MainActivity", "USB 裝置已插入")
+
+            // 獲取插入的 USB 裝置
+            val device = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(
+                    android.hardware.usb.UsbManager.EXTRA_DEVICE,
+                    android.hardware.usb.UsbDevice::class.java
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(android.hardware.usb.UsbManager.EXTRA_DEVICE)
+            }
+
+            device?.let {
+                android.util.Log.d("MainActivity", "檢測到 USB 裝置: ${it.deviceName}, VID:${it.vendorId}, PID:${it.productId}")
+
+                // 自動掃描並嘗試連線
+                val usbSerialManager = GmapMQTTApp.getInstance().getUsbSerialManager()
+                val usbSettingsManager = GmapMQTTApp.getInstance().getUsbSettingsManager()
+
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                    // 掃描裝置
+                    usbSerialManager.scanDevices()
+
+                    // 延遲一下讓掃描完成
+                    kotlinx.coroutines.delay(200)
+
+                    // 獲取當前設定
+                    usbSettingsManager.usbConfigFlow.collect { config ->
+                        // 如果設定中有儲存的裝置且與插入的裝置匹配，自動連線
+                        if (config.vendorId == it.vendorId && config.productId == it.productId) {
+                            android.util.Log.d("MainActivity", "自動連線到已儲存的裝置")
+                            usbSerialManager.connect(it, config)
+                        } else {
+                            // 否則，顯示提示讓使用者知道有新裝置
+                            android.util.Log.d("MainActivity", "檢測到新裝置，請到 USB 設定中連線")
+                            Toast.makeText(
+                                this@MainActivity,
+                                "檢測到 USB 裝置，請到 USB 設定中連線",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                        // 只收集一次就停止
+                        return@collect
+                    }
+                }
+            }
+        }
+    }
+
     private fun autoConnectUsb() {
         val usbSettingsManager = GmapMQTTApp.getInstance().getUsbSettingsManager()
         val usbSerialManager = GmapMQTTApp.getInstance().getUsbSerialManager()
@@ -523,7 +584,8 @@ fun UsbSettingsDialog(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    
+    val viewModel: NavigationViewModel = GmapMQTTApp.getInstance().getNavigationViewModel()
+
     val usbConfig = usbSettingsManager.usbConfigFlow.collectAsStateWithLifecycle(
         initialValue = UsbConfig()
     )
@@ -533,12 +595,14 @@ fun UsbSettingsDialog(
     var selectedDeviceIndex by remember { mutableStateOf(-1) }
     var baudRate by remember { mutableStateOf("115200") }
     var autoConnect by remember { mutableStateOf(false) }
+    var compactJsonMode by remember { mutableStateOf(true) }
     var expanded by remember { mutableStateOf(false) }
     
     // 初始化設定值
     LaunchedEffect(usbConfig.value) {
         baudRate = usbConfig.value.baudRate.toString()
         autoConnect = usbConfig.value.autoConnect
+        compactJsonMode = usbConfig.value.compactJsonMode
     }
     
     // 掃描裝置
@@ -644,6 +708,18 @@ fun UsbSettingsDialog(
                         onCheckedChange = { autoConnect = it }
                     )
                 }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("緊湊 JSON 模式")
+                    Switch(
+                        checked = compactJsonMode,
+                        onCheckedChange = { compactJsonMode = it }
+                    )
+                }
             }
         },
         confirmButton = {
@@ -661,7 +737,8 @@ fun UsbSettingsDialog(
                                     parity = 0,
                                     autoConnect = autoConnect,
                                     vendorId = device.vendorId,
-                                    productId = device.productId
+                                    productId = device.productId,
+                                    compactJsonMode = compactJsonMode
                                 )
                                 usbSettingsManager.saveUsbConfig(config)
                                 
@@ -685,8 +762,15 @@ fun UsbSettingsDialog(
                 if (usbSerialManager.isConnected()) {
                     Button(
                         onClick = {
-                            usbSerialManager.disconnect()
-                            Toast.makeText(context, "已斷線", Toast.LENGTH_SHORT).show()
+                            scope.launch {
+                                // 在斷線前先發送空白 JSON
+                                viewModel.sendEmptyJson()
+                                // 等待一小段時間確保資料傳輸完成
+                                kotlinx.coroutines.delay(100) // 延遲 100ms
+                                // 然後才斷線
+                                usbSerialManager.disconnect()
+                                Toast.makeText(context, "已斷線", Toast.LENGTH_SHORT).show()
+                            }
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error
