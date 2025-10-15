@@ -8,6 +8,22 @@
     <!-- USB Host 功能需求 -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
+    <!-- Android 12+ USB 权限声明 -->
+    <uses-permission android:name="android.permission.USB_PERMISSION"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- 聲明需要查詢的應用程式（Android 11+ 必需） -->
+    <queries>
+        <!-- Google Maps -->
+        <package android:name="com.google.android.apps.maps" />
+
+        <!-- 或者使用 Intent 方式聲明 -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+    </queries>
+
     <application
         android:name=".GmapMQTTApp"
         android:allowBackup="true"

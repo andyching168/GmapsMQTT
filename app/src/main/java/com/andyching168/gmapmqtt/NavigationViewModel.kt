@@ -200,19 +200,33 @@ class NavigationViewModel(private val usbSerialManager: UsbSerialManager) : View
 
     fun openGoogleMaps(context: Context) {
         try {
-            // 直接打開 Google Maps 主畫面（不啟動導航）
-            val intent = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.maps")
-            if (intent != null) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
-            } else {
-                // 如果 Google Maps 未安裝，打開 Play Store
-                val playStoreIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.google.android.apps.maps"))
-                context.startActivity(playStoreIntent)
-            }
+            // 直接使用 geo URI 启动 Google Maps
+            // 在添加 <queries> 声明后，这个方法在 Android 11+ 也能正常工作
+            val gmmIntentUri = Uri.parse("geo:0,0?q=")
+            val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
+            mapIntent.setPackage("com.google.android.apps.maps")
+
+            context.startActivity(mapIntent)
+            Log.d("GmapMQTT", "成功启动 Google Maps")
         } catch (e: Exception) {
-            Toast.makeText(context, "無法開啟 Google Maps", Toast.LENGTH_SHORT).show()
-            Log.e("GmapMQTT", "開啟 Google Maps 失敗", e)
+            // 如果失败，尝试不指定包名（让系统选择地图应用）
+            try {
+                val gmmIntentUri = Uri.parse("geo:0,0?q=")
+                val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
+                context.startActivity(mapIntent)
+                Log.d("GmapMQTT", "使用系统默认地图应用")
+            } catch (e2: Exception) {
+                // 最后才打开 Play Store
+                try {
+                    val playStoreIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.google.android.apps.maps"))
+                    context.startActivity(playStoreIntent)
+                    Toast.makeText(context, "Google Maps 未安裝，正在開啟 Play Store", Toast.LENGTH_SHORT).show()
+                    Log.d("GmapMQTT", "打开 Play Store")
+                } catch (e3: Exception) {
+                    Toast.makeText(context, "無法開啟 Google Maps", Toast.LENGTH_SHORT).show()
+                    Log.e("GmapMQTT", "開啟 Google Maps 失敗", e3)
+                }
+            }
         }
     }
 

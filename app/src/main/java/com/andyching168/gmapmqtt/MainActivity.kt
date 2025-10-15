@@ -546,6 +546,14 @@ fun UsbSettingsDialog(
         usbSerialManager.scanDevices()
     }
     
+    // 如果只有一個裝置，自動選擇它
+    LaunchedEffect(availableDevices.value) {
+        if (availableDevices.value.size == 1 && selectedDeviceIndex == -1) {
+            selectedDeviceIndex = 0
+            android.util.Log.d("UsbSettings", "自動選擇唯一的 USB 裝置: ${availableDevices.value[0].deviceName}")
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("USB Serial 設定") },

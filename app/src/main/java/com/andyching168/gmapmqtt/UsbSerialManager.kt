@@ -87,13 +87,29 @@ class UsbSerialManager(private val context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.registerReceiver(usbPermissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
             context.registerReceiver(usbPermissionReceiver, filter)
         }
     }
     
     fun scanDevices() {
         try {
-            val manager = usbManager ?: return
+            val manager = usbManager ?: run {
+                Log.e(TAG, "UsbManager 未初始化")
+                _errorMessage.value = "UsbManager 未初始化"
+                return
+            }
+
+            // 先获取所有 USB 设备（包括没有驱动的）
+            val allDevices = manager.deviceList
+            Log.d(TAG, "系統檢測到 ${allDevices.size} 個 USB 裝置")
+
+            // 列出所有设备的详细信息
+            allDevices.values.forEach { device ->
+                Log.d(TAG, "USB 裝置: ${device.deviceName}, VID: ${device.vendorId}, PID: ${device.productId}")
+            }
+
+            // 使用 UsbSerialProber 查找支持的驱动
             val availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(manager)
             
             val deviceList = availableDrivers.map { driver ->
@@ -107,7 +123,11 @@ class UsbSerialManager(private val context: Context) {
             }
             
             _availableDevices.value = deviceList
-            Log.d(TAG, "找到 ${deviceList.size} 個 USB Serial 裝置")
+            Log.d(TAG, "找到 ${deviceList.size} 個支援的 USB Serial 裝置")
+
+            if (deviceList.isEmpty() && allDevices.isNotEmpty()) {
+                _errorMessage.value = "找到 ${allDevices.size} 個 USB 裝置，但沒有支援的 Serial 驅動"
+            }
         } catch (e: Exception) {
             Log.e(TAG, "掃描 USB 裝置失敗", e)
             _errorMessage.value = "掃描裝置失敗: ${e.message}"
