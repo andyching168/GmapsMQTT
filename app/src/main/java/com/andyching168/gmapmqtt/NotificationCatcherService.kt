@@ -1,5 +1,22 @@
 package com.andyching168.gmapmqtt
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Build
+import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -7,12 +24,30 @@ import android.graphics.drawable.Icon
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.Bitmap
 import android.graphics.Color
+import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
-class NotificationCatcherService : NotificationListenerService() {
+class NotificationCatcherService : NotificationListenerService(), SensorEventListener {
     private lateinit var viewModel: NavigationViewModel
+    private var locationManager: LocationManager? = null
+    private var locationListener: LocationListener? = null
+    private var sensorManager: SensorManager? = null
+    private var rotationVectorSensor: Sensor? = null
+    private var lastLocation: Location? = null
+    private var currentBearing: Float? = null
+    private var lastGpsPublishTime = 0L
+    private val channelId = "gmapmqtt_navigation_channel"
+    private val notificationId = 1001
+    private val exitAction = "com.andyching168.gmapmqtt.EXIT_APP"
+    private var isExiting = false
+
+    companion object {
+        const val EXIT_APP_ACTION = "com.andyching168.gmapmqtt.EXIT_APP"
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -20,6 +55,219 @@ class NotificationCatcherService : NotificationListenerService() {
         viewModel = GmapMQTTApp.getInstance().getNavigationViewModel()
         // 初始化時設置為沒有通知
         viewModel.updateNavigationInfo(NavigationInfo(hasNotification = false))
+        createNotificationChannel()
+        startNavigationForeground()
+        startLocationTracking()
+        startHeadingTracking()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == exitAction) {
+            exitApp()
+            return START_NOT_STICKY
+        }
+
+        if (::viewModel.isInitialized) {
+            startNavigationForeground()
+            startLocationTracking()
+            startHeadingTracking()
+        }
+        return START_STICKY
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId,
+                "導航監聽服務",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "用於保持 Google Maps 導航監聽與 MQTT 推送"
+                setShowBadge(false)
+            }
+
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(channel)
+        }
+    }
+
+    private fun startNavigationForeground(includeLocation: Boolean = false) {
+        val contentIntent = Intent(this, MainActivity::class.java)
+        val contentPendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            contentIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val exitIntent = Intent(this, NotificationCatcherService::class.java).apply {
+            action = exitAction
+        }
+        val exitPendingIntent = PendingIntent.getService(
+            this,
+            1,
+            exitIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("GmapMQTT 導航同步")
+            .setContentText("正在監聽 Google Maps 導航通知")
+            .setSmallIcon(android.R.drawable.ic_dialog_map)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(contentPendingIntent)
+            .setOngoing(true)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "結束APP", exitPendingIntent)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val foregroundTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
+                if (includeLocation) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
+            ServiceCompat.startForeground(this, notificationId, notification, foregroundTypes)
+        } else {
+            startForeground(notificationId, notification)
+        }
+        Log.d("GmapMQTT", "前台服務已啟動")
+    }
+
+    private fun hasLocationPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun startLocationTracking() {
+        if (!hasLocationPermission()) {
+            Log.w("GmapMQTT", "缺少定位權限，暫不啟動 GPS/MQTT 位置更新")
+            return
+        }
+        if (locationListener != null) return
+
+        var lastKnownLocation: Location? = null
+        try {
+            startNavigationForeground(includeLocation = true)
+            val manager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            locationManager = manager
+            val listener = object : LocationListener {
+                override fun onLocationChanged(location: Location) {
+                    lastLocation = location
+                    val bearing = if (location.hasBearing()) location.bearing else currentBearing
+                    publishGpsInfo(location, bearing, force = true)
+                }
+
+                override fun onProviderDisabled(provider: String) {
+                    Log.w("GmapMQTT", "定位 provider 已停用: $provider")
+                }
+
+                override fun onProviderEnabled(provider: String) {
+                    Log.d("GmapMQTT", "定位 provider 已啟用: $provider")
+                }
+
+                override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
+            }
+            locationListener = listener
+
+            val minTimeMs = 1_000L
+            val minDistanceM = 1f
+            if (manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, minTimeMs, minDistanceM, listener)
+            }
+            if (manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, minTimeMs, minDistanceM, listener)
+            }
+
+            lastKnownLocation = manager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?: manager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+        } catch (e: SecurityException) {
+            Log.e("GmapMQTT", "啟動定位更新失敗，權限不足", e)
+        } catch (e: Exception) {
+            Log.e("GmapMQTT", "啟動定位更新失敗", e)
+        }
+
+        lastKnownLocation?.let { location ->
+            lastLocation = location
+            publishGpsInfo(location, if (location.hasBearing()) location.bearing else currentBearing, force = true)
+        }
+    }
+
+    private fun stopLocationTracking() {
+        val listener = locationListener ?: return
+        try {
+            locationManager?.removeUpdates(listener)
+        } catch (e: Exception) {
+            Log.e("GmapMQTT", "停止定位更新失敗", e)
+        }
+        locationListener = null
+    }
+
+    private fun startHeadingTracking() {
+        if (rotationVectorSensor != null) return
+        val manager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        sensorManager = manager
+        rotationVectorSensor = manager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        val sensor = rotationVectorSensor
+        if (sensor == null) {
+            Log.w("GmapMQTT", "找不到 Rotation Vector 感測器，bearing 將只使用 GPS")
+            return
+        }
+        manager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_UI)
+    }
+
+    private fun stopHeadingTracking() {
+        sensorManager?.unregisterListener(this)
+        rotationVectorSensor = null
+    }
+
+    private fun publishGpsInfo(location: Location, bearing: Float?, force: Boolean) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastGpsPublishTime < 2_000L) return
+        lastGpsPublishTime = now
+
+        val speedKmh = if (location.hasSpeed()) location.speed * 3.6f else null
+        viewModel.updateGpsInfo(
+            latitude = location.latitude,
+            longitude = location.longitude,
+            speedKmh = speedKmh,
+            bearing = bearing
+        )
+    }
+
+    override fun onSensorChanged(event: SensorEvent) {
+        if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
+
+        val rotationMatrix = FloatArray(9)
+        val orientation = FloatArray(3)
+        SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+        SensorManager.getOrientation(rotationMatrix, orientation)
+        val azimuthDegrees = Math.toDegrees(orientation[0].toDouble()).toFloat()
+        currentBearing = (azimuthDegrees + 360f) % 360f
+
+        lastLocation?.let { location ->
+            publishGpsInfo(location, currentBearing, force = false)
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+
+    private fun exitApp() {
+        try {
+            isExiting = true
+            viewModel.publishEmptyNavigationInfo()
+            Log.d("GmapMQTT", "已發布清除導航資訊")
+
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+
+            val exitIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                action = EXIT_APP_ACTION
+            }
+            startActivity(exitIntent)
+            Log.d("GmapMQTT", "已發送結束應用指令")
+        } catch (e: Exception) {
+            Log.e("GmapMQTT", "結束應用時出錯", e)
+        }
     }
 
     override fun onListenerConnected() {
@@ -57,10 +305,14 @@ class NotificationCatcherService : NotificationListenerService() {
         super.onListenerDisconnected()
         Log.d("GmapMQTT", "Service onListenerDisconnected - 服務已斷開連接")
         // 服務斷線時，清空導航資訊
-        viewModel.updateNavigationInfo(NavigationInfo(hasNotification = false))
+        if (::viewModel.isInitialized) {
+            viewModel.publishEmptyNavigationInfo()
+        }
 
         // 嘗試重新連接
-        requestRebind(android.content.ComponentName(this, NotificationCatcherService::class.java))
+        if (!isExiting) {
+            requestRebind(android.content.ComponentName(this, NotificationCatcherService::class.java))
+        }
     }
 
     private fun simpleIconHash(bitmap: Bitmap): String {
@@ -154,8 +406,15 @@ class NotificationCatcherService : NotificationListenerService() {
         super.onNotificationRemoved(sbn)
         if (sbn.packageName == "com.google.android.apps.maps") {
             // 當 Google Maps 通知被移除時，設置為沒有通知
-            viewModel.updateNavigationInfo(NavigationInfo(hasNotification = false))
+            viewModel.publishEmptyNavigationInfo()
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        stopLocationTracking()
+        stopHeadingTracking()
+        Log.d("GmapMQTT", "服務已銷毀")
     }
 
     private fun parseProgressStyleNotification(extras: android.os.Bundle): NavigationInfo {

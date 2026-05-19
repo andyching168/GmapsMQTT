@@ -1,14 +1,21 @@
 package com.andyching168.gmapmqtt
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,10 +42,29 @@ import com.andyching168.gmapmqtt.ui.theme.GmapMQTTTheme
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
+    private val requestPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        permissions.entries.forEach { entry ->
+            if (!entry.value) {
+                Log.d("MainActivity", "權限被拒絕: ${entry.key}")
+            }
+        }
+        startNotificationServiceIfReady()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (intent?.action == NotificationCatcherService.EXIT_APP_ACTION) {
+            Log.d("MainActivity", "收到結束應用指令")
+            finishAndRemoveTask()
+            return
+        }
+
         enableEdgeToEdge()
         
         // 啟動時檢查是否需要自動連線 MQTT
@@ -54,6 +80,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        checkBatteryOptimization()
+        checkAndRequestPermissions()
     }
     
     private fun autoConnectMqtt() {
@@ -75,6 +104,15 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         android.util.Log.d("MainActivity", "onResume called")
         ensureServiceEnabled()
+        startNotificationServiceIfReady()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == NotificationCatcherService.EXIT_APP_ACTION) {
+            Log.d("MainActivity", "收到結束應用指令(onNewIntent)")
+            finishAndRemoveTask()
+        }
     }
 
     private fun ensureServiceEnabled() {
@@ -113,6 +151,72 @@ class MainActivity : ComponentActivity() {
             android.service.notification.NotificationListenerService.requestRebind(componentName)
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    private fun checkAndRequestPermissions() {
+        val permissionsToRequest = mutableListOf<String>()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+
+        if (permissionsToRequest.isEmpty()) {
+            startNotificationServiceIfReady()
+        } else {
+            requestPermissionsLauncher.launch(permissionsToRequest.toTypedArray())
+        }
+    }
+
+    private fun startNotificationServiceIfReady() {
+        if (!isNotificationServiceEnabled()) {
+            Log.d("MainActivity", "通知監聽權限未啟用，暫不啟動前台服務")
+            return
+        }
+        startNotificationService()
+    }
+
+    private fun startNotificationService() {
+        try {
+            val serviceIntent = Intent(this, NotificationCatcherService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+            Log.d("MainActivity", "已啟動通知監聽前台服務")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "啟動通知監聽服務失敗", e)
+            Toast.makeText(this, "啟動服務失敗: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun checkBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                try {
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "請求忽略電池最佳化失敗", e)
+                }
+            }
         }
     }
 }
@@ -258,6 +362,21 @@ fun NavigationScreen() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("開啟 Google Maps")
+            }
+
+            Button(
+                onClick = {
+                    val serviceIntent = Intent(context, NotificationCatcherService::class.java).apply {
+                        action = NotificationCatcherService.EXIT_APP_ACTION
+                    }
+                    context.startService(serviceIntent)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text("結束應用程式")
             }
         }
 

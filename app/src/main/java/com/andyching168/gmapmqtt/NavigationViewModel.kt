@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.time.Instant
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -30,6 +31,11 @@ class NavigationViewModel(private val mqttClientManager: MqttClientManager) : Vi
     private var lastIconHash: String = ""
     private var lastUnknownHash: String = ""
     private var lastProcessedIcon: String = ""  // 存儲處理後的圖標數據（Hex字串）
+    private var gpsLatitude: Double? = null
+    private var gpsLongitude: Double? = null
+    private var gpsSpeedKmh: Float? = null
+    private var gpsBearing: Float? = null
+    private var gpsTimestamp: String = ""
 
     // 哈希值對應表
     private val iconHashMap: Map<String, String> = mapOf(
@@ -126,6 +132,25 @@ class NavigationViewModel(private val mqttClientManager: MqttClientManager) : Vi
         // 當導航資訊更新時，自動推送到 MQTT
         publishNavigationInfo()
     }
+
+    fun publishEmptyNavigationInfo() {
+        updateNavigationInfo(NavigationInfo(hasNotification = false))
+    }
+
+    fun updateGpsInfo(
+        latitude: Double?,
+        longitude: Double?,
+        speedKmh: Float?,
+        bearing: Float?,
+        timestamp: String = Instant.now().toString()
+    ) {
+        gpsLatitude = latitude
+        gpsLongitude = longitude
+        gpsSpeedKmh = speedKmh
+        gpsBearing = bearing
+        gpsTimestamp = timestamp
+        publishNavigationInfo()
+    }
     
     private fun publishNavigationInfo() {
         if (mqttClientManager.isConnected()) {
@@ -201,20 +226,41 @@ class NavigationViewModel(private val mqttClientManager: MqttClientManager) : Vi
     }
 
     fun openGoogleMaps(context: Context) {
+        val googleMapsPackageName = "com.google.android.apps.maps"
         try {
-            // 直接打開 Google Maps 主畫面（不啟動導航）
-            val intent = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.maps")
-            if (intent != null) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
-            } else {
-                // 如果 Google Maps 未安裝，打開 Play Store
-                val playStoreIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.google.android.apps.maps"))
-                context.startActivity(playStoreIntent)
+            val explicitIntent = Intent().apply {
+                setClassName(googleMapsPackageName, "com.google.android.maps.MapsActivity")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
+            context.startActivity(explicitIntent)
+            Log.d("GmapMQTT", "成功啟動 Google Maps")
         } catch (e: Exception) {
-            Toast.makeText(context, "無法開啟 Google Maps", Toast.LENGTH_SHORT).show()
-            Log.e("GmapMQTT", "開啟 Google Maps 失敗", e)
+            Log.e("GmapMQTT", "顯式啟動 Google Maps 失敗", e)
+
+            try {
+                val mapIntent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=台北101")).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(mapIntent)
+                Log.d("GmapMQTT", "成功啟動地圖應用")
+            } catch (e2: Exception) {
+                Log.e("GmapMQTT", "啟動地圖應用失敗", e2)
+                Toast.makeText(context, "無法開啟 Google Maps: ${e.message}", Toast.LENGTH_LONG).show()
+
+                try {
+                    val playStoreIntent = Intent(Intent.ACTION_VIEW).apply {
+                        data = Uri.parse("market://details?id=$googleMapsPackageName")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(playStoreIntent)
+                } catch (e3: Exception) {
+                    val webIntent = Intent(Intent.ACTION_VIEW).apply {
+                        data = Uri.parse("https://play.google.com/store/apps/details?id=$googleMapsPackageName")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(webIntent)
+                }
+            }
         }
     }
 
@@ -223,6 +269,15 @@ class NavigationViewModel(private val mqttClientManager: MqttClientManager) : Vi
             put("turnDirection", _navigationInfo.value.turnDirection)
             put("direction", _navigationInfo.value.direction)
             put("turnDistance", _navigationInfo.value.turnDistance)
+            put("totalDistance", _navigationInfo.value.totalDistance)
+            put("duration", _navigationInfo.value.duration)
+            put("eta", _navigationInfo.value.eta)
+            put("latitude", gpsLatitude ?: JSONObject.NULL)
+            put("longitude", gpsLongitude ?: JSONObject.NULL)
+            put("speed", gpsSpeedKmh ?: JSONObject.NULL)
+            put("bearing", gpsBearing ?: JSONObject.NULL)
+            put("timestamp", gpsTimestamp.ifEmpty { Instant.now().toString() })
+            put("iconBase64", "")
             // 始終包含 iconData 欄位，避免解析工具因欄位消失而出錯
             put("iconData", lastProcessedIcon)
         }
