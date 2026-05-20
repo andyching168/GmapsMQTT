@@ -2,6 +2,7 @@ package com.andyching168.gmapmqtt
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.util.Base64
 import android.util.Log
 import java.io.ByteArrayOutputStream
 
@@ -58,6 +59,22 @@ class ImageProcessor {
             } catch (e: Exception) {
                 Log.e(TAG, "圖像處理失敗", e)
                 return null
+            }
+        }
+
+        fun encodePngBase64(bitmap: Bitmap?): String {
+            if (bitmap == null) {
+                Log.w(TAG, "輸入的 Bitmap 為 null，無法產生 PNG Base64")
+                return ""
+            }
+
+            return try {
+                val output = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+            } catch (e: Exception) {
+                Log.e(TAG, "PNG Base64 編碼失敗", e)
+                ""
             }
         }
         

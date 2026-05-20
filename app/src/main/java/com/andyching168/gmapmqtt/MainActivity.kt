@@ -45,6 +45,8 @@ import kotlinx.coroutines.Dispatchers
 import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
+    private var hasPromptedBackgroundLocationSettings = false
+
     private val requestPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -53,6 +55,7 @@ class MainActivity : ComponentActivity() {
                 Log.d("MainActivity", "權限被拒絕: ${entry.key}")
             }
         }
+        ensureBackgroundLocationPermission()
         startNotificationServiceIfReady()
     }
 
@@ -104,6 +107,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         android.util.Log.d("MainActivity", "onResume called")
         ensureServiceEnabled()
+        ensureBackgroundLocationPermission()
         startNotificationServiceIfReady()
     }
 
@@ -175,9 +179,41 @@ class MainActivity : ComponentActivity() {
         }
 
         if (permissionsToRequest.isEmpty()) {
+            ensureBackgroundLocationPermission()
             startNotificationServiceIfReady()
         } else {
             requestPermissionsLauncher.launch(permissionsToRequest.toTypedArray())
+        }
+    }
+
+    private fun ensureBackgroundLocationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        if (hasPromptedBackgroundLocationSettings) return
+
+        val hasForegroundLocation =
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        val hasBackgroundLocation =
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+
+        if (hasForegroundLocation && !hasBackgroundLocation) {
+            hasPromptedBackgroundLocationSettings = true
+            Toast.makeText(
+                this,
+                "請在位置權限中選擇「一律允許」，讓背景 MQTT GPS 持續更新",
+                Toast.LENGTH_LONG
+            ).show()
+            try {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                Log.e("MainActivity", "開啟 App 權限設定失敗", e)
+            }
         }
     }
 

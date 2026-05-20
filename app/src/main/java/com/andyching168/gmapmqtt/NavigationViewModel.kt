@@ -31,6 +31,7 @@ class NavigationViewModel(private val mqttClientManager: MqttClientManager) : Vi
     private var lastIconHash: String = ""
     private var lastUnknownHash: String = ""
     private var lastProcessedIcon: String = ""  // 存儲處理後的圖標數據（Hex字串）
+    private var lastIconBase64: String = ""     // PNG Base64，供 QTdashboard 顯示圖標
     private var gpsLatitude: Double? = null
     private var gpsLongitude: Double? = null
     private var gpsSpeedKmh: Float? = null
@@ -126,6 +127,7 @@ class NavigationViewModel(private val mqttClientManager: MqttClientManager) : Vi
         // 如果沒有導航通知（導航結束），清空圖標數據
         if (!info.hasNotification) {
             lastProcessedIcon = ""
+            lastIconBase64 = ""
             Log.d("GmapMQTT", "導航已結束，清除圖標數據")
         }
         
@@ -187,15 +189,17 @@ class NavigationViewModel(private val mqttClientManager: MqttClientManager) : Vi
         // 處理圖標並生成壓縮編碼字串
         if (bitmap != null) {
             val processedIcon = ImageProcessor.processImage(bitmap)
+            lastIconBase64 = ImageProcessor.encodePngBase64(bitmap)
             if (processedIcon != null) {
                 lastProcessedIcon = processedIcon
-                Log.d("GmapMQTT", "圖標處理成功，壓縮字串長度: ${processedIcon.length}")
+                Log.d("GmapMQTT", "圖標處理成功，壓縮字串長度: ${processedIcon.length}, PNG Base64長度: ${lastIconBase64.length}")
             } else {
                 lastProcessedIcon = ""
                 Log.w("GmapMQTT", "圖標處理失敗")
             }
         } else {
             lastProcessedIcon = ""
+            lastIconBase64 = ""
         }
         
         val direction = getDirectionWithTolerance(hash)
@@ -277,7 +281,7 @@ class NavigationViewModel(private val mqttClientManager: MqttClientManager) : Vi
             put("speed", gpsSpeedKmh ?: JSONObject.NULL)
             put("bearing", gpsBearing ?: JSONObject.NULL)
             put("timestamp", gpsTimestamp.ifEmpty { Instant.now().toString() })
-            put("iconBase64", "")
+            put("iconBase64", lastIconBase64)
             // 始終包含 iconData 欄位，避免解析工具因欄位消失而出錯
             put("iconData", lastProcessedIcon)
         }
